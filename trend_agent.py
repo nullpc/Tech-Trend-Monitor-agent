@@ -80,18 +80,25 @@ def build_html_template(top_stories: list) -> str:
 
 def send_digest(top_stories: list):
     if not SENDER_EMAIL or not APP_PASSWORD:
-        print("Missing credentials.")
+        print("❌ Error: Missing credentials. Check your GitHub Repository Secrets!")
         return
+
+    print(f"Attempting to send email from {SENDER_EMAIL} to {RECEIVER_EMAIL}...")
+    
     msg = MIMEMultipart("alternative")
-    msg["From"], msg["To"] = SENDER_EMAIL, RECEIVER_EMAIL
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = RECEIVER_EMAIL
     msg["Subject"] = f"💡 Tech Trend Monitor — Top 5 Discussions"
     msg.attach(MIMEText(build_html_template(top_stories), "html"))
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(SENDER_EMAIL, APP_PASSWORD)
-        server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
-    print("✓ Trend Digest sent successfully!")
 
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, APP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        print("✓ Trend Digest sent successfully!")
+    except Exception as e:
+        print(f"❌ SMTP Mail Error occurred: {e}")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--now", action="store_true")
