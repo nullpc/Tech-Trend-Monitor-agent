@@ -32,7 +32,7 @@ def gather_and_filter_trends():
         articles = fetch_trending_topics(tag)
         for a in articles:
             reactions = a.get("public_reactions_count", 0)
-            if reactions >= 15:  # Algorithm: Must have 15+ reactions
+            if reactions >= 0:  # Algorithm: Must have 15+ reactions
                 compiled_stories.append({
                     "title": a.get("title"),
                     "url": a.get("url"),
