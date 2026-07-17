@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 import smtplib
 import argparse
@@ -7,12 +8,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # no-op on GitHub Actions if there's no .env file — that's fine, secrets come via env vars there
 SENDER_EMAIL   = os.getenv("SENDER_EMAIL")
 APP_PASSWORD   = os.getenv("APP_PASSWORD")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
 TARGET_TAGS = ["machinelearning", "webdev", "python", "javascript"]
+MIN_REACTIONS = 15  # actually enforce the "high-value only" filter now
+
 
 def fetch_trending_topics(tag: str) -> list:
     url = f"https://dev.to/api/articles?tag={tag}&top=5"
@@ -25,6 +28,7 @@ def fetch_trending_topics(tag: str) -> list:
         print(f"Error fetching tag #{tag}: {e}")
         return []
 
+
 def gather_and_filter_trends():
     compiled_stories = []
     for tag in TARGET_TAGS:
@@ -32,7 +36,7 @@ def gather_and_filter_trends():
         articles = fetch_trending_topics(tag)
         for a in articles:
             reactions = a.get("public_reactions_count", 0)
-            if reactions >= 0:  # Algorithm: Must have 15+ reactions
+            if reactions >= MIN_REACTIONS:
                 compiled_stories.append({
                     "title": a.get("title"),
                     "url": a.get("url"),
@@ -41,12 +45,15 @@ def gather_and_filter_trends():
                     "reactions": reactions,
                     "reading_time": a.get("reading_time_minutes", 1)
                 })
-    return sorted(compiled_stories, key=lambda x: x["reactions"], reverse=True)[:5]
+    result = sorted(compiled_stories, key=lambda x: x["reactions"], reverse=True)[:5]
+    print(f"Found {len(result)} stories meeting the {MIN_REACTIONS}+ reaction threshold.")
+    return result
+
 
 def build_html_template(top_stories: list) -> str:
     today = datetime.now().strftime("%B %d, %Y")
     rows = ""
-    for i, s in enumerate(top_stories, 1):
+    for s in top_stories:
         rows += f"""
         <tr>
           <td style="padding:16px 0; border-bottom:1px solid #eef2f6;">
@@ -78,17 +85,27 @@ def build_html_template(top_stories: list) -> str:
       </td></tr>
     </table></body></html>"""
 
+
 def send_digest(top_stories: list):
-    if not SENDER_EMAIL or not APP_PASSWORD:
-        print("❌ Error: Missing credentials. Check your GitHub Repository Secrets!")
-        return
+    # Validate ALL three required values, not just two of them
+    missing = [name for name, val in [
+        ("SENDER_EMAIL", SENDER_EMAIL),
+        ("APP_PASSWORD", APP_PASSWORD),
+        ("RECEIVER_EMAIL", RECEIVER_EMAIL),
+    ] if not val]
+
+    if missing:
+        print(f"❌ Missing required env vars: {', '.join(missing)}")
+        print("   Check that these are set as GitHub Repository Secrets AND")
+        print("   mapped in your workflow YAML under 'env:' for the step that runs this script.")
+        sys.exit(1)  # <-- fail the job loudly instead of silently returning
 
     print(f"Attempting to send email from {SENDER_EMAIL} to {RECEIVER_EMAIL}...")
-    
+
     msg = MIMEMultipart("alternative")
     msg["From"] = SENDER_EMAIL
     msg["To"] = RECEIVER_EMAIL
-    msg["Subject"] = f"💡 Tech Trend Monitor — Top 5 Discussions"
+    msg["Subject"] = "💡 Tech Trend Monitor — Top 5 Discussions"
     msg.attach(MIMEText(build_html_template(top_stories), "html"))
 
     try:
@@ -97,8 +114,16 @@ def send_digest(top_stories: list):
             server.login(SENDER_EMAIL, APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
         print("✓ Trend Digest sent successfully!")
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"❌ Gmail rejected the login: {e}")
+        print("   APP_PASSWORD must be a 16-character Gmail *App Password*, not your normal password.")
+        print("   Generate one at https://myaccount.google.com/apppasswords (requires 2FA enabled).")
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ SMTP Mail Error occurred: {e}")
+        print(f"❌ SMTP Mail Error occurred: {type(e).__name__}: {e}")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--now", action="store_true")
