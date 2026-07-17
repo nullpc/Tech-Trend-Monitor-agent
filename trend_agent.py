@@ -14,11 +14,11 @@ APP_PASSWORD   = os.getenv("APP_PASSWORD")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
 TARGET_TAGS = ["machinelearning", "webdev", "python", "javascript"]
-MIN_REACTIONS = 8  # lowered from 15 — a 1-day window has fewer accumulated reactions than 5 days
+MIN_REACTIONS = 5  # lowered further — 1-day windows rarely produce many 8+ reaction posts
 
 
 def fetch_trending_topics(tag: str) -> list:
-    url = f"https://dev.to/api/articles?tag={tag}&top=1"  # top=N means "top articles from last N days"
+    url = f"https://dev.to/api/articles?tag={tag}&top=3&per_page=20"  # 3-day pool, up to 20 articles per tag before filtering
     headers = {"User-Agent": "Mozilla/5.0 TechTrendMonitorAgent/1.0"}
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -30,14 +30,15 @@ def fetch_trending_topics(tag: str) -> list:
 
 
 def gather_and_filter_trends():
-    compiled_stories = []
+    stories_by_tag = {}
     for tag in TARGET_TAGS:
         print(f"Scanning #{tag}...")
         articles = fetch_trending_topics(tag)
+        qualifying = []
         for a in articles:
             reactions = a.get("public_reactions_count", 0)
             if reactions >= MIN_REACTIONS:
-                compiled_stories.append({
+                qualifying.append({
                     "title": a.get("title"),
                     "url": a.get("url"),
                     "tag": tag,
@@ -45,8 +46,26 @@ def gather_and_filter_trends():
                     "reactions": reactions,
                     "reading_time": a.get("reading_time_minutes", 1)
                 })
-    result = sorted(compiled_stories, key=lambda x: x["reactions"], reverse=True)[:5]
-    print(f"Found {len(result)} stories meeting the {MIN_REACTIONS}+ reaction threshold.")
+        qualifying.sort(key=lambda x: x["reactions"], reverse=True)
+        stories_by_tag[tag] = qualifying
+        print(f"  #{tag}: {len(qualifying)} qualifying articles")
+
+    # Step 1: guarantee up to 2 slots per tag so no single tag can dominate/starve the rest
+    selected = []
+    for tag in TARGET_TAGS:
+        selected.extend(stories_by_tag[tag][:2])
+
+    # Step 2: if that's fewer than 5 total, backfill with next-best leftovers regardless of tag
+    if len(selected) < 5:
+        leftovers = []
+        for tag in TARGET_TAGS:
+            leftovers.extend(stories_by_tag[tag][2:])
+        leftovers.sort(key=lambda x: x["reactions"], reverse=True)
+        selected.extend(leftovers[: 5 - len(selected)])
+
+    selected.sort(key=lambda x: x["reactions"], reverse=True)
+    result = selected[:5]
+    print(f"Final digest: {len(result)} stories across {len(set(s['tag'] for s in result))} tags")
     return result
 
 
