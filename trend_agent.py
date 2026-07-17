@@ -14,11 +14,11 @@ APP_PASSWORD   = os.getenv("APP_PASSWORD")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
 TARGET_TAGS = ["machinelearning", "webdev", "python", "javascript"]
-MIN_REACTIONS = 15  # actually enforce the "high-value only" filter now
+MIN_REACTIONS = 8  # lowered from 15 — a 1-day window has fewer accumulated reactions than 5 days
 
 
 def fetch_trending_topics(tag: str) -> list:
-    url = f"https://dev.to/api/articles?tag={tag}&top=5"
+    url = f"https://dev.to/api/articles?tag={tag}&top=1"  # top=N means "top articles from last N days"
     headers = {"User-Agent": "Mozilla/5.0 TechTrendMonitorAgent/1.0"}
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -105,7 +105,7 @@ def send_digest(top_stories: list):
     msg = MIMEMultipart("alternative")
     msg["From"] = SENDER_EMAIL
     msg["To"] = RECEIVER_EMAIL
-    msg["Subject"] = "💡 Tech Trend Monitor — Top 5 Discussions"
+    msg["Subject"] = f"💡 Tech Trend Monitor — Daily Top {len(top_stories)}"
     msg.attach(MIMEText(build_html_template(top_stories), "html"))
 
     try:
